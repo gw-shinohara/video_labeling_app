@@ -25,6 +25,6 @@ services:
 
     command: >
       streamlit run labeling_app.py
-      --server.port=38501
+      --server.port=8501
       --server.address=0.0.0.0
       --server.maxUploadSize=1024

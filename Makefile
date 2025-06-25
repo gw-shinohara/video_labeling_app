@@ -37,7 +37,7 @@ run:
 	@echo "  Application has started!"
 	@echo ""
 	@echo "  Please open the following URL in your browser:"
-	@echo "  => http://localhost:8501"
+	@echo "  => http://localhost:38501"
 	@echo "----------------------------------------------------"
 	@echo ""
 
