@@ -28,11 +28,6 @@ make run DATA_DIR=/path/to/your/data_directory
     make run DATA_DIR=/Users/myname/Pictures/datasets
     ```
 
-* **Windows:**
-    ```
-    make run DATA_DIR=D:\MyProjects\image_data
-    ```
-
 This command will:
 
 1.  Build the Docker image if it doesn't exist.

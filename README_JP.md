@@ -28,11 +28,6 @@ make run DATA_DIR=/path/to/your/data_directory
     make run DATA_DIR=/Users/myname/Pictures/datasets
     ```
 
-* **Windows の場合:**
-    ```
-    make run DATA_DIR=D:\MyProjects\image_data
-    ```
-
 このコマンドは以下の処理を実行します:
 
 1.  Dockerイメージが存在しない場合にビルドします。
