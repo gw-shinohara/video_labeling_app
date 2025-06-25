@@ -19,7 +19,8 @@ def save_state():
     # 保存するべきキーをリスト化
     keys_to_save = [
         "image_files", "current_frame_index", "labels_data",
-        "labels_config", "fixed_labels", "play_speed", "selected_path"
+        "labels_config", "fixed_labels", "play_speed", "selected_path",
+        "last_update_time", "actual_fps" # FPS関連のキーを追加
     ]
     state_to_save = {key: st.session_state.get(key) for key in keys_to_save}
 
@@ -62,6 +63,8 @@ def initialize_session_state():
         "play_speed": 10.0,
         "labels_config": ["ラベルA", "ラベルB", "ラベルC"],
         "selected_path": None,
+        "last_update_time": time.time(), # FPS計算用のタイムスタンプ
+        "actual_fps": 0.0,               # 実測FPS
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -147,7 +150,6 @@ def setup_sidebar():
         if st.session_state.get("image_files"):
             st.divider()
 
-            # ★★★ 機能追加・修正箇所 ★★★
             st.header("2. ラベル設定")
 
             label_file = st.file_uploader(
@@ -186,16 +188,51 @@ def setup_sidebar():
 
             st.divider()
             st.header("3. 結果の出力")
-            if st.session_state.labels_data:
-                df = pd.DataFrame(
-                    [(Path(k).name, ','.join(v)) for k, v in sorted(st.session_state.labels_data.items())],
-                    columns=['filename', 'labels']
-                )
-                csv = df.to_csv(index=False).encode('utf-8')
-                st.download_button("ラベリング結果をCSVでダウンロード", csv, "labels.csv", "text/csv", key="download_button")
+
+            include_unlabeled = st.checkbox(
+                "ラベルが付与されていない画像も出力に含める",
+                value=True,
+                key="include_unlabeled_checkbox"
+            )
+
+            if st.session_state.get("image_files"):
+                all_labels = st.session_state.labels_config
+                header = ['filename'] + all_labels
+
+                rows = []
+
+                for image_path in sorted(st.session_state.image_files):
+                    applied_labels = st.session_state.labels_data.get(image_path, [])
+                    applied_labels_set = set(applied_labels)
+
+                    if include_unlabeled or applied_labels:
+                        row_data = {'filename': Path(image_path).name}
+
+                        for label in all_labels:
+                            row_data[label] = 1 if label in applied_labels_set else 0
+                        rows.append(row_data)
+
+                if rows:
+                    df = pd.DataFrame(rows, columns=header)
+                    csv = df.to_csv(index=False).encode('utf-8')
+                    st.download_button(
+                        "ラベリング結果をCSVでダウンロード",
+                        csv,
+                        "labels.csv",
+                        "text/csv",
+                        key="download_button_csv"
+                    )
 
 def main_view():
     """メインの表示エリア（画像、コントロール、ラベリングパネル）を作成します。"""
+    # --- FPS Calculation ---
+    current_time = time.time()
+    delta = current_time - st.session_state.last_update_time
+    if delta > 0:
+        st.session_state.actual_fps = 1.0 / delta
+    st.session_state.last_update_time = current_time
+    # --- End of FPS Calculation ---
+
     if not st.session_state.get("image_files"):
         st.info(
             "ようこそ！\n\n"
@@ -223,7 +260,9 @@ def main_view():
     col_main, col_labels = st.columns([3, 1])
 
     with col_main:
-        st.subheader(f"画像表示 ({current_index + 1} / {total_frames})")
+        # ★★★ 修正点 ★★★ 再生中のみ実測FPSを表示するように修正
+        fps_display = f" (実測: {st.session_state.actual_fps:.1f} FPS)" if st.session_state.is_playing else ""
+        st.subheader(f"画像表示 ({current_index + 1} / {total_frames}){fps_display}")
         st.image(current_image_path, use_container_width=True)
         st.caption(Path(current_image_path).name)
 
@@ -265,6 +304,9 @@ def main_view():
 
         play_button_label = "⏸️ 一時停止" if st.session_state.is_playing else "▶️ 再生"
         if c2.button(play_button_label, use_container_width=True):
+            # 再生を開始するときにタイマーをリセット
+            if not st.session_state.is_playing:
+                st.session_state.last_update_time = time.time()
             st.session_state.is_playing = not st.session_state.is_playing
             save_state()
             st.rerun()
@@ -277,7 +319,7 @@ def main_view():
             save_state()
 
         st.slider(
-            "再生速度 (fps)", 1.0, 60.0,
+            "再生速度 (fps)", 1.0, 120.0,
             value=st.session_state.play_speed,
             key='play_speed_slider',
             on_change=on_slider_change
@@ -313,10 +355,16 @@ def auto_play():
         total_frames = len(st.session_state.image_files)
 
         if current_index < total_frames - 1:
+            # 目標の待機時間を計算
+            target_sleep_time = 1.0 / st.session_state.play_speed
+
+            # 実際の処理時間も考慮に入れる（より正確なFPSに近づけるため）
+            # このスクリプトではrerunベースなので、単純なsleepで近似する
+            time.sleep(target_sleep_time)
+
             st.session_state.current_frame_index += 1
             apply_fixed_labels()
             save_state()
-            time.sleep(1.0 / st.session_state.play_speed)
             st.rerun()
         else:
             st.session_state.is_playing = False

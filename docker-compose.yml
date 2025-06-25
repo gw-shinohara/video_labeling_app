@@ -4,7 +4,7 @@ services:
     build: .
     container_name: streamlit-labeling-app
     ports:
-      - "8501:8501"
+      - "38501:8501"
 
     # The volumes section is modified to use an environment variable.
     volumes:
@@ -15,8 +15,16 @@ services:
       - ${DATA_DIR}:/data
 
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          # CPUコア数を2つに制限
+          cpus: '2.0'
+          # メモリを4ギガバイトに制限
+          memory: 4G
+
     command: >
       streamlit run labeling_app.py
-      --server.port=8501
+      --server.port=38501
       --server.address=0.0.0.0
       --server.maxUploadSize=1024
