@@ -1,0 +1,22 @@
+
+services:
+  app:
+    build: .
+    container_name: streamlit-labeling-app
+    ports:
+      - "8501:8501"
+
+    # The volumes section is modified to use an environment variable.
+    volumes:
+      # Mount the application code.
+      - .:/app
+      # Mount the data directory. The host path is defined by the ${DATA_DIR} variable,
+      # which is passed from the Makefile. This path is mounted to /data inside the container.
+      - ${DATA_DIR}:/data
+
+    restart: unless-stopped
+    command: >
+      streamlit run labeling_app.py
+      --server.port=8501
+      --server.address=0.0.0.0
+      --server.maxUploadSize=1024
