@@ -70,6 +70,61 @@ def initialize_session_state():
         if key not in st.session_state:
             st.session_state[key] = value
 
+# --- ラベル読み込み機能 ---
+def load_labels_from_csv(uploaded_file):
+    """アップロードされたCSVからラベル結果を読み込み、ラベル設定も自動更新します。"""
+    try:
+        # 高速なルックアップのために、ファイル名をキー、フルパスを値とする辞書を作成
+        image_path_map = {Path(p).name: p for p in st.session_state.image_files}
+        
+        # アップロードされたCSVデータを読み込む
+        df = pd.read_csv(uploaded_file)
+
+        # 'filename' カラムの存在チェック
+        if 'filename' not in df.columns:
+            st.error("CSVファイルに 'filename' カラムが見つかりません。")
+            return
+
+        # ★★★ 修正点: 'filename' を除く全てのカラムをラベルカラムとして取得し、ラベル設定を更新 ★★★
+        label_columns = [col for col in df.columns if col != 'filename']
+        st.session_state.labels_config = label_columns
+        st.success(f"ラベル設定をCSVから読み込んだ{len(label_columns)}個のラベルに更新しました。")
+
+
+        loaded_count = 0
+        # DataFrameの各行を反復処理
+        for _, row in df.iterrows():
+            filename = row['filename']
+            # 対応する画像のフルパスを検索
+            image_path = image_path_map.get(filename)
+
+            if image_path:
+                # 画像パスが見つかった場合、そのラベルを処理
+                applied_labels = [
+                    label for label in label_columns if label in row and row[label] == 1
+                ]
+                # セッション状態を更新
+                st.session_state.labels_data[image_path] = applied_labels
+                loaded_count += 1
+        
+        if loaded_count > 0:
+            st.success(f"{loaded_count}件の画像に対するラベリングデータをCSVから読み込みました。")
+        else:
+            st.warning("CSV内のファイル名と一致する画像が現在のフォルダに見つかりませんでした。")
+
+        save_state() # 新しい状態を保存
+
+    except Exception as e:
+        st.error(f"ラベルCSVの読み込み中にエラーが発生しました: {e}")
+
+
+def on_csv_upload():
+    """Callback function to handle CSV file upload."""
+    uploaded_file = st.session_state.labels_csv_uploader
+    if uploaded_file:
+        with st.spinner("ラベルデータを読み込んでいます..."):
+            load_labels_from_csv(uploaded_file)
+
 # --- UIコンポーネント ---
 def setup_sidebar():
     """サイドバーのUI要素を設定します。"""
@@ -89,7 +144,10 @@ def setup_sidebar():
 
         try:
             all_items = sorted(os.listdir(DATA_ROOT_PATH))
-            subdirectories = [d for d in all_items if os.path.isdir(os.path.join(DATA_ROOT_PATH, d))]
+            subdirectories = [
+                d for d in all_items 
+                if os.path.isdir(os.path.join(DATA_ROOT_PATH, d)) and not d.startswith('.')
+            ]
             subdirectories.insert(0, ".")
         except Exception as e:
             st.error(f"データフォルダの読み取りに失敗しました: {e}")
@@ -132,16 +190,21 @@ def setup_sidebar():
 
                 initialize_session_state()
 
-                p_dir = Path(st.session_state.selected_path)
-                image_extensions = ["*.png", "*.jpg", "*.jpeg", "*.bmp", "*.tiff"]
                 image_paths = []
-                for ext in image_extensions:
-                    image_paths.extend(p_dir.rglob(ext))
+                image_extensions_set = {".png", ".jpg", ".jpeg", ".bmp", ".tiff"}
 
-                st.session_state.image_files = sorted([str(p) for p in image_paths])
+                search_path = st.session_state.selected_path
+                for root, dirs, files in os.walk(search_path):
+                    dirs[:] = [d for d in dirs if not d.startswith('.')]
+                    
+                    for file in files:
+                        if not file.startswith('.') and Path(file).suffix.lower() in image_extensions_set:
+                            image_paths.append(os.path.join(root, file))
+
+                st.session_state.image_files = sorted(image_paths)
 
                 if not st.session_state.image_files:
-                    st.error(f"フォルダ `{st.session_state.selected_path}` 内に画像ファイルが見つかりませんでした。")
+                    st.error(f"フォルダ `{st.session_state.selected_path}` 内（サブフォルダ含む）に画像ファイルが見つかりませんでした。")
                 else:
                     st.success(f"{len(st.session_state.image_files)}枚の画像を読み込みました。")
                     save_state()
@@ -150,7 +213,17 @@ def setup_sidebar():
         if st.session_state.get("image_files"):
             st.divider()
 
-            st.header("2. ラベル設定")
+            st.header("2. ラベル読み込み (任意)")
+            st.file_uploader(
+                "ラベリング結果CSVを読み込む",
+                type=["csv"],
+                key="labels_csv_uploader",
+                on_change=on_csv_upload,
+                help="以前出力した `labels.csv` をアップロードすると、ラベル設定と作業内容の両方を復元できます。"
+            )
+
+
+            st.header("3. ラベル設定")
 
             label_file = st.file_uploader(
                 "ラベル設定ファイルを読み込む (.txt)",
@@ -187,7 +260,7 @@ def setup_sidebar():
             )
 
             st.divider()
-            st.header("3. 結果の出力")
+            st.header("4. 結果の出力")
 
             include_unlabeled = st.checkbox(
                 "ラベルが付与されていない画像も出力に含める",
@@ -260,7 +333,6 @@ def main_view():
     col_main, col_labels = st.columns([3, 1])
 
     with col_main:
-        # ★★★ 修正点 ★★★ 再生中のみ実測FPSを表示するように修正
         fps_display = f" (実測: {st.session_state.actual_fps:.1f} FPS)" if st.session_state.is_playing else ""
         st.subheader(f"画像表示 ({current_index + 1} / {total_frames}){fps_display}")
         st.image(current_image_path, use_container_width=True)
@@ -304,7 +376,6 @@ def main_view():
 
         play_button_label = "⏸️ 一時停止" if st.session_state.is_playing else "▶️ 再生"
         if c2.button(play_button_label, use_container_width=True):
-            # 再生を開始するときにタイマーをリセット
             if not st.session_state.is_playing:
                 st.session_state.last_update_time = time.time()
             st.session_state.is_playing = not st.session_state.is_playing
@@ -355,11 +426,7 @@ def auto_play():
         total_frames = len(st.session_state.image_files)
 
         if current_index < total_frames - 1:
-            # 目標の待機時間を計算
             target_sleep_time = 1.0 / st.session_state.play_speed
-
-            # 実際の処理時間も考慮に入れる（より正確なFPSに近づけるため）
-            # このスクリプトではrerunベースなので、単純なsleepで近似する
             time.sleep(target_sleep_time)
 
             st.session_state.current_frame_index += 1
